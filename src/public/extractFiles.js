@@ -72,53 +72,69 @@ module.exports = function extractFiles(
   path = '',
   isExtractableFile = defaultIsExtractableFile
 ) {
-  let clone;
+  // Holds files that get extracted from the value.
   const files = new Map();
 
   /**
    * Adds a file to the extracted files map.
    * @kind function
    * @name extractFiles~addFile
-   * @param {ObjectPath[]} paths File object paths.
    * @param {ExtractableFile} file Extracted file.
+   * @param {ObjectPath} path File object path.
    * @ignore
    */
-  function addFile(paths, file) {
+  function addFile(file, path) {
     const storedPaths = files.get(file);
-    if (storedPaths) storedPaths.push(...paths);
-    else files.set(file, paths);
+    if (storedPaths) storedPaths.push(path);
+    else files.set(file, [path]);
   }
 
-  if (isExtractableFile(value)) {
-    clone = null;
-    addFile([path], value);
-  } else {
+  /**
+   * Recursively clones the value, extracting files.
+   * @kind function
+   * @name extractFiles~recurse
+   * @param {*} value Value to extract files from.
+   * @param {ObjectPath} path Prefix for object paths for extracted files.
+   * @param {Set} [recursed] Holds arrays and objects from the value that get recursed, so infinite recursion of circular references can be avoided.
+   * @returns {*} Clone of the value with files replaced with `null`.
+   * @ignore
+   */
+  function recurse(value, path, recursed) {
+    if (isExtractableFile(value)) {
+      addFile(value, path);
+      return null;
+    }
+
     const prefix = path ? `${path}.` : '';
 
+    // It is safe to assume that a `FileList` instance only contains `File`
+    // instances, and doesn’t contain circular references.
     if (typeof FileList !== 'undefined' && value instanceof FileList)
-      clone = Array.prototype.map.call(value, (file, i) => {
-        addFile([`${prefix}${i}`], file);
-        return null;
-      });
-    else if (Array.isArray(value))
-      clone = value.map((child, i) => {
-        const result = extractFiles(child, `${prefix}${i}`, isExtractableFile);
-        result.files.forEach(addFile);
-        return result.clone;
-      });
-    else if (value && value.constructor === Object) {
-      clone = {};
-      for (const i in value) {
-        const result = extractFiles(
-          value[i],
-          `${prefix}${i}`,
-          isExtractableFile
+      return Array.prototype.map.call(value, (item, index) =>
+        recurse(item, `${prefix}${index}`)
+      );
+
+    if (Array.isArray(value) && !recursed.has(value))
+      return value.map((item, index) =>
+        recurse(item, `${prefix}${index}`, new Set(recursed).add(value))
+      );
+
+    if (value && value.constructor === Object && !recursed.has(value)) {
+      const clone = {};
+      for (const key in value)
+        clone[key] = recurse(
+          value[key],
+          `${prefix}${key}`,
+          new Set(recursed).add(value)
         );
-        result.files.forEach(addFile);
-        clone[i] = result.clone;
-      }
-    } else clone = value;
+      return clone;
+    }
+
+    return value;
   }
 
-  return { clone, files };
+  return {
+    clone: recurse(value, path, new Set()),
+    files,
+  };
 };

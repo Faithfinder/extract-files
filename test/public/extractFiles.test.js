@@ -163,7 +163,7 @@ module.exports = (tests) => {
         files: new Map([[file, ['0', '1']]]),
       });
       strictEqual(input[0], file);
-      strictEqual(input[0], file);
+      strictEqual(input[1], file);
     }
   );
 
@@ -230,4 +230,37 @@ module.exports = (tests) => {
       );
     }
   );
+
+  tests.add('`extractFiles` with an object with circular references.', () => {
+    const original = {};
+    original.b = original;
+
+    const clone = {};
+    clone.b = clone;
+
+    deepStrictEqual(extractFiles(original), { clone, files: new Map() });
+  });
+
+  tests.add('`extractFiles` with an array referenced multiple times.', () => {
+    const file = new ReactNativeFile({ uri: '', name: '', type: '' });
+    const array = [file];
+    const input = {
+      a: array,
+      b: array,
+    };
+
+    const result = extractFiles(input);
+
+    deepStrictEqual(result, {
+      clone: {
+        a: [null],
+        b: [null],
+      },
+      files: new Map([[file, ['a.0', 'b.0']]]),
+    });
+    // strictEqual(result.clone.a, result.clone.b);
+    strictEqual(array[0], file);
+    strictEqual(input.a, array);
+    strictEqual(input.b, array);
+  });
 };
